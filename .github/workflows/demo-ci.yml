@@ -1,0 +1,113 @@
+name: Demo CI - Liquibase POC
+
+on:
+  push:
+    paths:
+      - '**/changelogs/**'
+      - 'scripts/**'
+      - 'config/**'
+  workflow_dispatch:
+    inputs:
+      liquibase_image:
+        description: 'Liquibase docker image (e.g. liquibase/liquibase:4.31.1)'
+        required: false
+        default: 'liquibase/liquibase:4.31.1'
+      use_runner:
+        description: 'Run Liquibase on the runner instead of the container (true/false)'
+        required: false
+        default: 'false'
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    env:
+      SA_PASSWORD: ${{ secrets.SA_PASSWORD }}
+      LIQUIBASE_IMAGE: ${{ github.event.inputs.liquibase_image }}
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          SA_PASSWORD: ${{ secrets.SA_PASSWORD }}
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P '$${SA_PASSWORD}' -Q 'SELECT 1'"
+          --health-interval=10s --health-timeout=5s --health-retries=30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mssql-tools (sqlcmd)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl apt-transport-https gnupg
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+          curl https://packages.microsoft.com/config/ubuntu/20.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17 mssql-tools unixodbc-dev
+          echo "PATH=$PATH:/opt/mssql-tools/bin" >> $GITHUB_ENV
+
+      - name: Wait for SQL Server
+        run: |
+          for i in {1..30}; do
+            if sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -Q "SELECT 1" -b -h -1 >/dev/null 2>&1; then
+              echo "SQL Server ready"; break
+            fi
+            echo "Waiting for SQL Server... ($i)"; sleep 5
+          done
+
+      - name: Install Liquibase on runner (optional)
+        if: ${{ eq(github.event.inputs.use_runner, 'true') }}
+        run: |
+          echo Installing Liquibase CLI on runner
+          curl -L https://github.com/liquibase/liquibase/releases/download/v4.31.1/liquibase-4.31.1.tar.gz -o /tmp/liquibase.tar.gz
+          sudo tar -xzf /tmp/liquibase.tar.gz -C /opt
+          echo "/opt/liquibase" | sudo tee -a /etc/paths.d/liquibase
+
+      - name: Apply changelogs to dev (runner)
+        if: ${{ eq(github.event.inputs.use_runner, 'true') }}
+        run: |
+          liquibase --defaultsFile=config/dev.properties update
+
+      - name: Apply changelogs to dev (container)
+        if: ${{ ne(github.event.inputs.use_runner, 'true') }}
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} --defaultsFile=config/dev.properties update
+
+      - name: Apply changelogs to stage (runner)
+        if: ${{ eq(github.event.inputs.use_runner, 'true') }}
+        run: |
+          liquibase --defaultsFile=config/stage.properties update
+
+      - name: Apply changelogs to stage (container)
+        if: ${{ ne(github.event.inputs.use_runner, 'true') }}
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} --defaultsFile=config/stage.properties update
+
+      - name: Promote to test (runner)
+        if: ${{ eq(github.event.inputs.use_runner, 'true') }}
+        run: |
+          liquibase --defaultsFile=config/test.properties update --contexts test
+
+      - name: Promote to test (container)
+        if: ${{ ne(github.event.inputs.use_runner, 'true') }}
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} --defaultsFile=config/test.properties update --contexts test
+
+      - name: Seed test from stage (sqlcmd)
+        run: |
+          sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -i scripts/seed-test-from-stage.sql -b -C
+
+      - name: Validate schema and data counts
+        run: |
+          set -e
+          customers=$(sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -d liquibase_test -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Customers" -h -1 | tr -d '[:space:]')
+          orders=$(sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -d liquibase_test -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM dbo.Orders" -h -1 | tr -d '[:space:]')
+          echo "Customers=$customers Orders=$orders"
+          if [ "$customers" = "2" ] && [ "$orders" = "2" ]; then
+            echo "Validation passed"
+          else
+            echo "Validation failed: expected 2/2 but got $customers/$orders"; exit 1
+          fi
