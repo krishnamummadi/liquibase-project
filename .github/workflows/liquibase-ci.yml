@@ -1,0 +1,52 @@
+name: Liquibase CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          SA_PASSWORD: "YourStrong!Passw0rd"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "bash -lc '/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P $${SA_PASSWORD} -Q \"SELECT 1\"'"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Wait for SQL Server to be ready
+        run: |
+          echo "Waiting for SQL Server..."
+          for i in {1..30}; do
+            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "YourStrong!Passw0rd" -Q "SELECT 1" && break
+            sleep 5
+          done
+
+      - name: Run Liquibase update (using Docker image)
+        uses: docker://liquibase/liquibase:4.31.1
+        with:
+          args: --defaultsFile=/github/workspace/config/dev.properties update
+        env:
+          TZ: UTC
+
+      - name: Promote to test (optional)
+        if: github.event_name == 'push'
+        run: |
+          echo "Promotion step: running Liquibase update against test and seeding from stage"
+          docker run --rm -v "$PWD":/workspace -w /workspace liquibase/liquibase:4.31.1 --defaultsFile=/workspace/config/test.properties --contexts=test update
+          docker run --rm -v "$PWD":/workspace -w /workspace liquibase/liquibase:4.31.1 --defaultsFile=/workspace/config/stage.properties update
+          # Seed test from stage using sqlcmd inside the SQL Server service (simple approach)
+          # Adjust as needed for production ETL
+          sleep 2
+          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "YourStrong!Passw0rd" -i ./scripts/seed-test-from-stage.sql
