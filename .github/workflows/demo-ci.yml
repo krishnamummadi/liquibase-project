@@ -23,7 +23,6 @@ jobs:
     env:
       SA_PASSWORD: ${{ secrets.SA_PASSWORD }}
       LIQUIBASE_IMAGE: ${{ github.event.inputs.liquibase_image || 'liquibase/liquibase:4.31.1' }}
-      USE_RUNNER: ${{ github.event.inputs.use_runner || 'false' }}
     services:
       mssql:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -59,41 +58,15 @@ jobs:
             echo "Waiting for SQL Server... ($i)"; sleep 5
           done
 
-      - name: Install Liquibase on runner (optional)
-        if: ${{ github.event.inputs.use_runner == 'true' }}
-        run: |
-          echo Installing Liquibase CLI on runner
-          curl -L https://github.com/liquibase/liquibase/releases/download/v4.31.1/liquibase-4.31.1.tar.gz -o /tmp/liquibase.tar.gz
-          sudo tar -xzf /tmp/liquibase.tar.gz -C /opt
-          echo "/opt/liquibase" | sudo tee -a /etc/paths.d/liquibase
-
-      - name: Apply changelogs to dev (runner)
-        if: ${{ github.event.inputs.use_runner == 'true' }}
-        run: |
-          liquibase --defaultsFile=config/dev.properties update
-
-      - name: Apply changelogs to dev (container)
-        if: ${{ github.event.inputs.use_runner != 'true' }}
+      - name: Apply changelogs to dev
         run: |
           docker run --rm --network host -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} --defaultsFile=config/dev.properties update
 
-      - name: Apply changelogs to stage (runner)
-        if: ${{ github.event.inputs.use_runner == 'true' }}
-        run: |
-          liquibase --defaultsFile=config/stage.properties update
-
-      - name: Apply changelogs to stage (container)
-        if: ${{ github.event.inputs.use_runner != 'true' }}
+      - name: Apply changelogs to stage
         run: |
           docker run --rm --network host -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} --defaultsFile=config/stage.properties update
 
-      - name: Promote to test (runner)
-        if: ${{ github.event.inputs.use_runner == 'true' }}
-        run: |
-          liquibase --defaultsFile=config/test.properties update --contexts test
-
-      - name: Promote to test (container)
-        if: ${{ github.event.inputs.use_runner != 'true' }}
+      - name: Promote to test
         run: |
           docker run --rm --network host -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} --defaultsFile=config/test.properties update --contexts test
 
