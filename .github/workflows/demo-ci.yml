@@ -7,18 +7,13 @@ on:
       - 'scripts/**'
       - 'config/**'
   workflow_dispatch:
-    inputs:
-      liquibase_image:
-        description: 'Liquibase docker image (e.g. liquibase/liquibase:4.31.1)'
-        required: false
-        default: 'liquibase/liquibase:4.31.1'
 
 jobs:
   demo:
     runs-on: ubuntu-latest
     env:
       SA_PASSWORD: ${{ secrets.SA_PASSWORD }}
-      LIQUIBASE_IMAGE: ${{ github.event.inputs.liquibase_image || 'liquibase/liquibase:4.31.1' }}
+      LIQUIBASE_IMAGE: liquibase/liquibase:4.31.1
     services:
       mssql:
         image: mcr.microsoft.com/mssql/server:2022-latest
