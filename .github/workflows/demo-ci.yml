@@ -14,17 +14,8 @@ jobs:
     env:
       SA_PASSWORD: ${{ secrets.SA_PASSWORD }}
       LIQUIBASE_IMAGE: liquibase/liquibase:4.31.1
-    services:
-      mssql:
-        image: mcr.microsoft.com/mssql/server:2022-latest
-        env:
-          ACCEPT_EULA: 'Y'
-          SA_PASSWORD: ${{ secrets.SA_PASSWORD }}
-        ports:
-          - 1433:1433
-        options: >-
-          --health-cmd "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P '$${SA_PASSWORD}' -Q 'SELECT 1'"
-          --health-interval=10s --health-timeout=5s --health-retries=30
+    # Start SQL Server container explicitly in a runner step so we can capture logs
+    # and diagnose initialization failures more easily (avoids opaque service failures).
 
     steps:
       - name: Checkout
@@ -40,6 +31,16 @@ jobs:
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17 mssql-tools unixodbc-dev
           echo "PATH=$PATH:/opt/mssql-tools/bin" >> $GITHUB_ENV
 
+      - name: Start SQL Server container
+        run: |
+          echo "Starting SQL Server container..."
+          docker run -d --name mssql -e ACCEPT_EULA=Y -e SA_PASSWORD="$SA_PASSWORD" -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest || (
+            echo "docker run failed, printing last container logs (if any)";
+            docker ps -a || true;
+            docker logs mssql || true;
+            exit 1
+          )
+
       - name: Wait for SQL Server
         run: |
           for i in {1..30}; do
@@ -51,15 +52,24 @@ jobs:
 
       - name: Apply changelogs to dev
         run: |
-          docker run --rm --network host -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} --defaultsFile=config/dev.properties update
+          docker run --rm --add-host=host.docker.internal:host-gateway -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} \
+            --changeLogFile=changelogs/master.xml \
+            --url="jdbc:sqlserver://host.docker.internal:1433;databaseName=liquibase_dev;encrypt=true;trustServerCertificate=true" \
+            --username=sa --password="$SA_PASSWORD" update
 
       - name: Apply changelogs to stage
         run: |
-          docker run --rm --network host -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} --defaultsFile=config/stage.properties update
+          docker run --rm --add-host=host.docker.internal:host-gateway -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} \
+            --changeLogFile=changelogs/master.xml \
+            --url="jdbc:sqlserver://host.docker.internal:1433;databaseName=liquibase_stage;encrypt=true;trustServerCertificate=true" \
+            --username=sa --password="$SA_PASSWORD" update
 
       - name: Promote to test
         run: |
-          docker run --rm --network host -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} --defaultsFile=config/test.properties update --contexts test
+          docker run --rm --add-host=host.docker.internal:host-gateway -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} \
+            --changeLogFile=changelogs/master.xml \
+            --url="jdbc:sqlserver://host.docker.internal:1433;databaseName=liquibase_test;encrypt=true;trustServerCertificate=true" \
+            --username=sa --password="$SA_PASSWORD" update --contexts test
 
       - name: Seed test from stage (sqlcmd)
         run: |
