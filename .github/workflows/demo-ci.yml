@@ -49,7 +49,10 @@ jobs:
             fi
             echo "Waiting for SQL Server... ($i)"; sleep 5
           done
-
+      - name: Create demo databases
+        run: |
+          echo "Creating demo databases..."
+          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -i scripts/init-databases.sql
       - name: Apply changelogs to dev
         run: |
           docker run --rm --add-host=host.docker.internal:host-gateway -v ${{ github.workspace }}:/workspace -w /workspace ${{ env.LIQUIBASE_IMAGE }} \
