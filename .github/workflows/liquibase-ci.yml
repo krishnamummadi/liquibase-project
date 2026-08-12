@@ -17,9 +17,6 @@ jobs:
           SA_PASSWORD: "YourStrong!Passw0rd"
         ports:
           - 1433:1433
-        options: >-
-          --health-cmd "bash -lc '/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P $${SA_PASSWORD} -Q \"SELECT 1\"'"
-          --health-interval 10s --health-timeout 5s --health-retries 10
 
     steps:
       - name: Checkout
@@ -34,18 +31,18 @@ jobs:
           done
 
       - name: Run Liquibase update (using Docker image)
-        uses: docker://liquibase/liquibase:4.31.1
-        with:
-          args: --defaultsFile=/github/workspace/config/dev.properties update
-        env:
-          TZ: UTC
+        run: |
+          docker run --rm --network host -v "$PWD":/workspace -w /workspace liquibase/liquibase:4.31.1 \
+            --defaultsFile=/workspace/config/dev.properties update
 
       - name: Promote to test (optional)
         if: github.event_name == 'push'
         run: |
           echo "Promotion step: running Liquibase update against test and seeding from stage"
-          docker run --rm -v "$PWD":/workspace -w /workspace liquibase/liquibase:4.31.1 --defaultsFile=/workspace/config/test.properties --contexts=test update
-          docker run --rm -v "$PWD":/workspace -w /workspace liquibase/liquibase:4.31.1 --defaultsFile=/workspace/config/stage.properties update
+          docker run --rm --network host -v "$PWD":/workspace -w /workspace liquibase/liquibase:4.31.1 \
+            --defaultsFile=/workspace/config/test.properties --contexts=test update
+          docker run --rm --network host -v "$PWD":/workspace -w /workspace liquibase/liquibase:4.31.1 \
+            --defaultsFile=/workspace/config/stage.properties update
           # Seed test from stage using sqlcmd inside the SQL Server service (simple approach)
           # Adjust as needed for production ETL
           sleep 2
