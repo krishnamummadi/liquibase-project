@@ -45,7 +45,7 @@ CREATE INDEX IX_Orders_Status ON dbo.Orders(Status);
 IF NOT EXISTS (SELECT 1 FROM dbo.Customers WHERE Id = 1)
 BEGIN
     INSERT INTO dbo.Customers (Id, Name, IsActive, Email) VALUES
-    (1, N'John Smith', 1, N'john@example.com'),
-    (2, N'Jane Doe', 1, N'jane@example.com'),
-    (3, N'Bob Johnson', 0, N'bob@example.com');
+    (11, N'John Smith', 1, N'john@example.com'),
+    (22, N'Jane Doe', 1, N'jane@example.com'),
+    (33, N'Bob Johnson', 0, N'bob@example.com');
 END;
