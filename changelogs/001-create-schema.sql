@@ -8,6 +8,7 @@ CREATE TABLE dbo.Customers (
 );
 
 
+
 CREATE TABLE dbo.Orders (
     Id INT NOT NULL PRIMARY KEY,
     CustomerId INT NOT NULL,
