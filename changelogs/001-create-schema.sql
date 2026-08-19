@@ -7,6 +7,7 @@ CREATE TABLE dbo.Customers (
     IsActive BIT NOT NULL DEFAULT 1
 );
 
+
 CREATE TABLE dbo.Orders (
     Id INT NOT NULL PRIMARY KEY,
     CustomerId INT NOT NULL,
