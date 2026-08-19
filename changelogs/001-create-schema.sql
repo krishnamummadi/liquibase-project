@@ -41,7 +41,10 @@ CREATE TABLE dbo.OrderItems (
 CREATE INDEX IX_Orders_Status ON dbo.Orders(Status);
 
 --changeset poc:006-seed-sample-customers
-INSERT INTO dbo.Customers (Id, Name, IsActive, Email) VALUES
-(1, N'John Smith', 1, N'john@example.com'),
-(2, N'Jane Doe', 1, N'jane@example.com'),
-(3, N'Bob Johnson', 0, N'bob@example.com');
+IF NOT EXISTS (SELECT 1 FROM dbo.Customers WHERE Id = 1)
+BEGIN
+    INSERT INTO dbo.Customers (Id, Name, IsActive, Email) VALUES
+    (1, N'John Smith', 1, N'john@example.com'),
+    (2, N'Jane Doe', 1, N'jane@example.com'),
+    (3, N'Bob Johnson', 0, N'bob@example.com');
+END;
